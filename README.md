@@ -3,8 +3,8 @@ Core utility functions and objects for VEBA
 
 ## Create SQLite database from VEBA essentials
 ```python
-database_url =  "sqlite:///./test-no-sequences.db" 
-veba_essentials_directory = "./Analysis/veba_output/essentials"
+database_url =  "sqlite:///./test/test-no-sequences.db" 
+veba_essentials_directory = "./test/veba_output/essentials"
 store_sequences = False
 
 db_controller = VEBAEssentialsDatabase(
@@ -12,12 +12,6 @@ db_controller = VEBAEssentialsDatabase(
     veba_essentials_directory=veba_essentials_directory,
     store_sequences=store_sequences
 )
-
-# Database controller initialized for: sqlite:///./test-case-study-no-sequences.db
-# WARNING: Dropping all tables and recreating schema...
-# Tables dropped successfully.
-# Tables recreated successfully.
-# Database has been reset to an empty schema.
 
 # --- Starting Full Database Population ---
 # Loading and preparing source data...

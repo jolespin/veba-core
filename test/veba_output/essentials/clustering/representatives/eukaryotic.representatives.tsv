@@ -1,0 +1,4 @@
+id_node	id_cluster	intra-cluster_connectivity	representative
+S1__METABAT2__E.1__bin.1	ESLC-a2a3ed2541a4e0cbd4acd3a0c5b8853c	99.55	True
+S2__METABAT2__E.1__bin.2	ESLC-a2a3ed2541a4e0cbd4acd3a0c5b8853c	99.55	False
+S4__METABAT2__E.1__bin.1	ESLC-c3b8ceb5683f66c621a0ba3600eef6e1		True
