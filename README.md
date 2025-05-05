@@ -1,7 +1,21 @@
 # VEBA Core
 Core utility functions and objects for VEBA
 
+## Install
+```
+pip install veba-core
+```
+
 ## Create SQLite database from VEBA essentials
+
+From the CLI
+```bash
+output_database="./test/test-no-sequences.db" # sqlite:/// is preprended internally
+veba_essentials_directory="./test/veba_output/essentials"
+build-relational-database.py -i ${veba_essentials_directory} -o ${output_database}
+```
+
+From the API
 ```python
 database_url =  "sqlite:///./test/test-no-sequences.db" 
 veba_essentials_directory = "./test/veba_output/essentials"
@@ -12,6 +26,7 @@ db_controller = VEBAEssentialsDatabase(
     veba_essentials_directory=veba_essentials_directory,
     store_sequences=store_sequences
 )
+db_controller.populate_all(reset_first=True)
 
 # --- Starting Full Database Population ---
 # Loading and preparing source data...
@@ -218,6 +233,7 @@ Referenced by:
 ```
 
 ## Querying PostgreSQL Data as a Graph with PuppyGraph
+NOTE: This is still in development and does not currently
 ### Create a `docker-compose.yaml`
 
 ```yaml

@@ -30,8 +30,9 @@ setup(name='veba_core',
     packages=["veba_core"],
     install_requires=requirements,
     include_package_data=False,
-    # scripts=[
-    # ],
+    scripts=[
+        "bin/build-relational-database.py",
+    ],
 
 )
 
