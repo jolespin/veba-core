@@ -3,7 +3,7 @@ Core utility functions and objects for VEBA
 
 ## Install
 ```bash
-$ pip install veba-core
+pip install veba-core
 ```
 
 ## Create SQLite database from VEBA essentials
@@ -115,25 +115,25 @@ db_controller.populate_all(reset_first=True)
 ## Converting SQLite to PostgreSQL
 ### Install `pgloader`
 ```bash
-$ sudo apt install postgresql postgresql-contrib pgloader
+sudo apt install postgresql postgresql-contrib pgloader
 ```
 ### Start PostgreSQL server
 ```bash
-$ sudo systemctl start postgresql
+sudo systemctl start postgresql
 # sudo systemctl enable postgresql # To start on boot
-$ sudo systemctl status postgresql
+sudo systemctl status postgresql
 ```
 
 ### Set up user
 ```bash
 # Create a user
-$ sudo -u postgres psql -c "CREATE USER veba WITH PASSWORD 'hello-postgresql';"
+sudo -u postgres psql -c "CREATE USER veba WITH PASSWORD 'hello-postgresql';"
 
 # Remove a user
 # sudo -u postgres psql -c "DROP USER veba;"
 
 # Check user
-$ sudo -u postgres psql -c "\du"
+sudo -u postgres psql -c "\du"
 
                                    List of roles
  Role name |                         Attributes                         | Member of 
@@ -145,8 +145,8 @@ $ sudo -u postgres psql -c "\du"
 
 ### Create PostgreSQL database
 ```bash
-$ postgresql_database_name="veba-essentials-database"
-$ sudo -u postgres psql -c "CREATE DATABASE \"${postgresql_database_name}\";"
+postgresql_database_name="veba-essentials-database"
+sudo -u postgres psql -c "CREATE DATABASE \"${postgresql_database_name}\";"
 ```
 
 ### Convert to PostgreSQL
@@ -156,7 +156,7 @@ export PGPASSWORD="hello-postgresql"
 export PGHOST="localhost"
 export PGPORT=5432
 
-$ pgloader test-case-study.db postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${postgresql_database_name}
+pgloader test-case-study.db postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${postgresql_database_name}
 ```
 
 ### Connect to PostgreSQL database
@@ -234,7 +234,7 @@ Referenced by:
 
 ### Output all the genomes that contain a protein with the `PF11832.13` annotation:
 ```bash
-$ sqlite3 test.db "SELECT DISTINCT g.name FROM genome g JOIN contig c ON g.name = c.genome_id JOIN protein p ON c.name = p.contig_id JOIN protein_pfam_association ppa ON p.name = ppa.protein_id JOIN pfam pf ON ppa.pfam_id = pf.name WHERE pf.name = 'PF11832.13';"
+sqlite3 test.db "SELECT DISTINCT g.name FROM genome g JOIN contig c ON g.name = c.genome_id JOIN protein p ON c.name = p.contig_id JOIN protein_pfam_association ppa ON p.name = ppa.protein_id JOIN pfam pf ON ppa.pfam_id = pf.name WHERE pf.name = 'PF11832.13';"
 S1__BINETTE__P.1__bin_210
 S2__BINETTE__P.1__bin_126
 S3__BINETTE__P.1__bin_4
@@ -242,7 +242,7 @@ S3__BINETTE__P.1__bin_4
 ### Output the fasta for all the proteins that contain Pfam `PF11832.13`:
 
 ```bash
-$ sqlite3 test.db "SELECT '>' || p.name || CHAR(10) || p.aa FROM protein p JOIN protein_pfam_association ppa ON p.name = ppa.protein_id JOIN pfam pf ON ppa.pfam_id = pf.name WHERE pf.name = 'PF11832.13';"
+sqlite3 test.db "SELECT '>' || p.name || CHAR(10) || p.aa FROM protein p JOIN protein_pfam_association ppa ON p.name = ppa.protein_id JOIN pfam pf ON ppa.pfam_id = pf.name WHERE pf.name = 'PF11832.13';"
 >S1__NODE_1718_length_2749_cov_4.329621_1
 MKSNLIVFLSFFIFIGCTNSNKNTIKLIDYVPQNSVYIIKTNNLESLKSNIKNNLLISELKNYSTSKNFISKIKNLEFLNTSNEILFSISLDSKDSMQITAITKLKEDIFNTDSLPDLKIETIKSNKRTLTKTSINNEPLYSMVMDSLFLISSSKETLENAKPNYNTDLHKIYSTIDDSKLLSVLINSRVKNSFPKLFNILDLNFTNYSLLDIDIAQNEIIFNGITQAIDSTSSFINCFKNNVPQENLISKMCPTDIESFNSFTFKNFNEFYKQKSNYLKGSLELERTEFNSVIEFGNLSKADQNASVIRCIDPNTVNDAFVAESISESYRSVEIFSINNFDDIKNSFSPFFNNSSASYYFNIDDFFVLSSDIEFLKTIISNYQNNTSLYDYEPFKNIMKKLSDESSIFIYKNDFGLNQLFNNNFQENLDLKISNYKASAMQFVYDSDFAHINGITKIFKTKVSSNSVSEELNIKLDNDLISSPQIIINHTNNEKDIVVQDLKNNLYLI
 >S2__NODE_2293_length_2384_cov_3.185487_1
@@ -256,7 +256,7 @@ Experimental usage for querying SQL database with LLMs
 
 ### Install dependencies
 ```bash
-$ pip install dotenv pandasai openai
+pip install dotenv pandasai openai
 ```
 
 ### Query SQL
