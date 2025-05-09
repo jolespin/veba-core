@@ -149,8 +149,6 @@ postgresql_database_name="veba-essentials-database"
 sudo -u postgres psql -c "CREATE DATABASE \"${postgresql_database_name}\";"
 ```
 
-
-
 ### Convert to PostgreSQL
 ```
 export PGUSER="veba"
@@ -232,42 +230,103 @@ Referenced by:
     TABLE "protein_pfam_association" CONSTRAINT "protein_pfam_association_protein_id_fkey" FOREIGN KEY (protein_id) REFERENCES protein(name)
 ```
 
+## Querying SQL from cli
+
+### Output all the genomes that contain a protein with the `PF11832.13` annotation:
+```
+$ sqlite3 test.db "SELECT DISTINCT g.name FROM genome g JOIN contig c ON g.name = c.genome_id JOIN protein p ON c.name = p.contig_id JOIN protein_pfam_association ppa ON p.name = ppa.protein_id JOIN pfam pf ON ppa.pfam_id = pf.name WHERE pf.name = 'PF11832.13';"
+S1__BINETTE__P.1__bin_210
+S2__BINETTE__P.1__bin_126
+S3__BINETTE__P.1__bin_4
+```
+### Output the fasta for all the proteins that contain Pfam `PF11832.13`:
+
+```
+$ sqlite3 test.db "SELECT '>' || p.name || CHAR(10) || p.aa FROM protein p JOIN protein_pfam_association ppa ON p.name = ppa.protein_id JOIN pfam pf ON ppa.pfam_id = pf.name WHERE pf.name = 'PF11832.13';"
+>S1__NODE_1718_length_2749_cov_4.329621_1
+MKSNLIVFLSFFIFIGCTNSNKNTIKLIDYVPQNSVYIIKTNNLESLKSNIKNNLLISELKNYSTSKNFISKIKNLEFLNTSNEILFSISLDSKDSMQITAITKLKEDIFNTDSLPDLKIETIKSNKRTLTKTSINNEPLYSMVMDSLFLISSSKETLENAKPNYNTDLHKIYSTIDDSKLLSVLINSRVKNSFPKLFNILDLNFTNYSLLDIDIAQNEIIFNGITQAIDSTSSFINCFKNNVPQENLISKMCPTDIESFNSFTFKNFNEFYKQKSNYLKGSLELERTEFNSVIEFGNLSKADQNASVIRCIDPNTVNDAFVAESISESYRSVEIFSINNFDDIKNSFSPFFNNSSASYYFNIDDFFVLSSDIEFLKTIISNYQNNTSLYDYEPFKNIMKKLSDESSIFIYKNDFGLNQLFNNNFQENLDLKISNYKASAMQFVYDSDFAHINGITKIFKTKVSSNSVSEELNIKLDNDLISSPQIIINHTNNEKDIVVQDLKNNLYLI
+>S2__NODE_2293_length_2384_cov_3.185487_1
+MKSNLIVFLSFFIFIGCTNSNKNTIKLIDYVPQNSVYIIKTNNLESLKSNIKNNLLISELKNYSTSKNFISKIKNLEFLNTSNEILFSISLDSKDSMQITAITKLKEDIFNTDSLPDLKIETIKSNKRTLTKTSINNEPLYSMVMDSLFLISSSKETLENAKPNYNTDLHKIYSTIDDSKLLSVLINSRVKNSFPKLFNILDLNFTNYSLLDIDIAQNEIIFNGITQAIDSTSSFINCFKNNVPQENLISKMCPTDIESFNSFTFKNFNEFYKQKSNYLKGSLELERTEFNSVIEFGNLSKADQNASVIRCIDPNTVNDAFVAESISESYRSVEIFSFNNFDDIKNSFSPFFNNSSASYYFNIDDFFVLSSDIEFLKTIISNYQNNTSLYDYEPFKNIMKKLSDESSIFIYKNDFGLNQLFNNNFQENLDLKISNYKASAMQFVYDSDFAHINGITKIFKTKVSSNSVSEELNIKLDNDLISSPQIIINHTNNEKDIVVQDLKNNLYLISNKGKVFWKKQLDGKILGDIKQIDMFKNGRLQMVFNTSKHLYILDRNGK
+>S3__NODE_103_length_48952_cov_10.001432_27
+MSKKSASKKTSTRKKIWRGFKYLLLAGVLGAAAFVVYVLLQDTPDRDIYDFVPEKSVFVVEADDPIENWKSLSKTPMWKHLKKNELFADIEGDANFLDTLINDNERLFDLMAGKKVLICAQMTKADDYDFTYLVDLEKGSKVTFFIDIFKPIMSGVGYPMKESELGGKKTYTINDGYDDIYMAFLDNVLAISYSQKLLLGVIEQEKKPFYSKNANFQLVRDASYDAANRSSIGKVHLNFDQLDEYMSVFMDEVSGSILDISKSMRYASFDLKVEDEYTEMEGLVSVDSANPTLATVLLQQDRGEISAPRILPTNTSFLLTIDFDDFNDFYGSIGESMKEDADYKDFEKTKNTIGKLLGVNANDRKKDRAERKGKDKDYFDWLGQEIALAMVPKNESGSEQSYLAIFHTPDYANAVHDLSQISKKIRRRTPVKFKDYEYRGKDIQWLAMKGFFKLFLGKLFKQFDKPKFVVLEEHVVFSNDTSAIHRVIDASMAEETLYGETGYRRLTREFSDESNYFIYMNSERLYPHLPSLLDAESAGDLRKNREYVVCFPQVGLQLTSDDDDAFETKIYLEYEDPK*
+```
+
+## Querying SQL with natural language
+Experimental usage for querying SQL database with LLMs
+
+### Install dependencies
+```
+pip install dotenv pandasai openai
+```
+
+### Query SQL
+```
+import pandas as pd
+from sqlalchemy import create_engine,text
+from pandasai import SmartDataframe, SmartDatalake
+from pandasai.llm import OpenAI # Or another supported LLM like Starcoder, OpenChat
+from dotenv import dotenv_values
+
+# Config
+config = dotenv_values("~/.openai")
+SQLITE_DB_PATH = "test/test-no-sequences.db"
+OPENAI_API_KEY = config["api_key"] 
+
+# Connect to SQLite and Load Data into Pandas DataFrames
+engine = create_engine(f"sqlite:///{SQLITE_DB_PATH}")
+
+tables = dict()
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';"))
+    available_tables = [row[0] for row in result]
+    print(f"Successfully connected and queried.\nTables found: {available_tables}")
+
+    # Get tables
+    # ['pfam', 'kofam', 'ncbifam_amr', 'antifam', 'enzyme', 'sample', 'pangenome', 'ortholog', 'genome', 'contig', 'protein', 
+    # 'protein_pfam_association', 'protein_kofam_association', 'protein_ncbifam_amr_association', 'protein_antifam_association', 'protein_enzyme_association']
+    for name in available_tables:
+        tables[name] = pd.read_sql_table(name, conn)
+
+
+# Initialize PandasAI with an LLM
+llm = OpenAI(api_token=OPENAI_API_KEY)
+
+# Create SmartDataframe(s) ---
+# You can pass multiple DataFrames to a single SmartDataframe if they are related,
+# or create separate ones. PandasAI will try to infer relationships if column names overlap.
+
+## Option A: Separate SmartDataframes (simpler to start)
+# smart_df = SmartDataframe(tables["genome"], config={"llm": llm})
+
+# Option B: Combining related DataFrames into a SmartDatalake concept (more powerful for joins)
+smart_datalake = SmartDatalake(
+    list(tables.values()),
+    config={
+        "llm": llm,
+        "verbose": False, # See the generated Python code
+        "save_charts": False,
+        "enable_cache": True
+    }
+)
+
+# Ask Questions (Natural Language Queries)
+prompt = "Which proteins have photosystem functionality in this dataset?  Please provide a dataframe with the protein identifiers (excluding ortholog identifiers) and the associated annotation."
+response = smart_datalake.chat(prompt)
+response.head(10).set_index("protein_identifier")["annotation"]
+
+protein_identifier
+S1__NODE_3414_length_1504_cov_3.657005_1                 Putative photosystem II stability/assembly factor
+S1__NODE_222_length_28518_cov_10.839792_8                Photosystem II Psb31 protein;Photosystem II Ps...
+S1__NODE_111_length_38118_cov_10.717285_7                Manganese-stabilising protein / photosystem II...
+S1__NODE_111_length_38118_cov_10.717285_9                              Extrinsic protein in photosystem II
+S1__NODE_16_length_73671_cov_10.745599_11                         Photosystem II reaction center X protein
+S1__NODE_78_length_45125_cov_10.381673_9                      Photosystem II reaction center Psb28 protein
+S1__NODE_814_length_8251_cov_10.641654_1596:2075(-)      Photosystem II;Photosystem II Pbs27;photosyste...
+S1__NODE_1172_length_4653_cov_10.408873_102:767(-)            Photosystem II reaction center Psb28 protein
+S1__NODE_519_length_15093_cov_9.807687_13794:14298(+)    Photosystem II 12 kDa extrinsic protein;Photos...
+S1__NODE_1059_length_5396_cov_11.872683_4313:4720(+)     Photosystem II 12 kDa extrinsic protein (PsbU)...
+Name: annotation, dtype: object
+```
+
 ## Querying PostgreSQL Data as a Graph with PuppyGraph
-NOTE: This is still in development and does not currently
-### Create a `docker-compose.yaml`
-
-```yaml
-services:
-  puppygraph:
-    image: puppygraph/puppygraph:stable
-    pull_policy: always
-    container_name: puppygraph
-    environment:
-      # PuppyGraph internal user/pass (for accessing PuppyGraph UI/API)
-      - PUPPYGRAPH_USERNAME=puppygraph
-      - PUPPYGRAPH_PASSWORD=puppygraph123
-
-      # --- Configuration for YOUR PostgreSQL Database on the HOST ---
-      - PUPPYGRAPH_DB_TYPE=postgres
-      - PUPPYGRAPH_DB_HOST=host.docker.internal # Special DNS for host from container
-      - PUPPYGRAPH_DB_PORT=5432                # Your host PG port
-      - PUPPYGRAPH_DB_NAME=veba-essentials-database # <<< CORRECT DB NAME
-      - PUPPYGRAPH_DB_USERNAME=veba               # Your PG user
-      - PUPPYGRAPH_DB_PASSWORD=hello-postgresql   # Your PG user's password
-      # Optional: Specify schema if not 'public'
-      # - PUPPYGRAPH_DB_SCHEMA=public
-    ports:
-      # Map host ports to container ports (adjust host ports if needed)
-      - "8081:8081" # PuppyGraph Web UI -> Use 8085:8081 if 8081 is busy on host
-      - "8182:8182" # PuppyGraph HTTP API
-      - "7687:7687" # PuppyGraph Bolt Port -> Use 7688:7687 if 7687 is busy on host
-
-# No 'postgres' service defined here
-# No custom network is strictly needed unless 'host.docker.internal' doesn't work
-```
-
-### Run PuppyGraph
-
-```
-sudo docker compose up -d
-```
+TBD
