@@ -12,11 +12,13 @@ from pyexeggutor import open_file_reader
 import sqlalchemy
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Boolean, Text,
-    ForeignKey, Table, UniqueConstraint, inspect as sqla_inspect # Renamed inspect
+    ForeignKey, Table, UniqueConstraint, inspect as sqla_inspect
 )
-from sqlalchemy.dialects.postgresql import ARRAY # Example if using PostgreSQL arrays instead of M2M
-from sqlalchemy.orm import relationship, declarative_base, sessionmaker, Query, Session, RelationshipProperty, object_mapper
-
+# from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.orm import (
+    relationship, declarative_base, sessionmaker, Query, Session,
+    RelationshipProperty, object_mapper, ColumnProperty
+)
 def md5hash(seq:str):
     seq = seq.lower()
     return hashlib.md5(seq.encode('utf-8')).hexdigest()
@@ -1204,3 +1206,229 @@ class VEBAEssentialsDatabase:
                 raise # Re-raise IO error
         else:
             return json_string # Return the JSON string
+
+    def to_ontology(self, path: str = None):
+        """
+        Generates a JSON representation of the model relationships (ontology).
+
+        Args:
+            path (str, optional): File path to write the JSON ontology to.
+                                   If None, returns the JSON string. Defaults to None.
+
+        Returns:
+            str | None: The JSON ontology as a string if path is None, otherwise None.
+        """
+        print("Generating ontology schema...")
+        ontology_relationships = []
+        processed_relationships = set() # To avoid duplicates from back_populates
+        model_classes = self.MODELS_FOR_SCHEMA
+        model_labels = {model.__name__ for model in model_classes}
+
+        for model_cls in model_classes:
+            try:
+                mapper = object_mapper(model_cls())
+                model_label = model_cls.__name__
+
+                for rel_prop in mapper.relationships:
+                    target_cls_name = rel_prop.mapper.class_.__name__
+                    if target_cls_name not in model_labels: continue # Skip relationships outside defined models
+
+                    # Create a unique key for the relationship pair, regardless of direction
+                    # Use frozenset because sets aren't hashable for use as dict keys/set elements
+                    rel_key = frozenset((model_label, target_cls_name, rel_prop.key))
+                    # Check if the reverse relationship (using back_populates) was already processed
+                    back_pop_key = frozenset((target_cls_name, model_label, rel_prop.back_populates)) if rel_prop.back_populates else None
+
+                    if rel_key in processed_relationships or (back_pop_key and back_pop_key in processed_relationships):
+                        continue
+
+                    source_label = model_label
+                    target_label = target_cls_name
+                    rel_type = rel_prop.direction.name # MANYTOONE, ONETOMANY, MANYTOMANY
+                    description = f"{source_label} {rel_prop.key} ({rel_type}) {target_label}"
+
+                    # Try to make description more semantic
+                    if rel_type == 'MANYTOONE':
+                        description = f"{source_label} BELONGS_TO {target_label} (via {rel_prop.key})"
+                    elif rel_type == 'ONETOMANY':
+                         description = f"{source_label} HAS_MANY {target_label} (via {rel_prop.key})"
+                    elif rel_type == 'MANYTOMANY':
+                         assoc_table = rel_prop.secondary.name if rel_prop.secondary is not None else "association table"
+                         description = f"{source_label} RELATED_TO {target_label} (via {rel_prop.key}, through {assoc_table})"
+
+                    ontology_relationships.append({
+                        "source": source_label,
+                        "relationship_type": rel_type,
+                        "target": target_label,
+                        "description": description,
+                        "attribute_name": rel_prop.key # Name of the attribute in the source class
+                    })
+                    processed_relationships.add(rel_key) # Mark this specific relationship attribute as processed
+
+            except Exception as e:
+                 print(f"Warning: Could not process relationships for model {model_cls.__name__}: {e}")
+
+        # Assemble the final ontology dictionary
+        ontology_dict = {
+            "ontology_format": "simple_relationship_list",
+            "relationships": sorted(ontology_relationships, key=lambda x: (x['source'], x['target']))
+        }
+
+        # Convert to JSON string
+        try:
+            json_string = json.dumps(ontology_dict, indent=4)
+        except TypeError as e:
+             print(f"Error serializing ontology to JSON: {e}"); return None
+
+        # Write to file or return string
+        if path:
+            try:
+                with open(path, 'w') as f: f.write(json_string)
+                print(f"Ontology successfully written to: {path}")
+                return None
+            except IOError as e: print(f"Error writing ontology to file '{path}': {e}"); raise
+        else:
+            return json_string
+
+    # --- NEW JSON DATA DUMP METHOD ---
+    def _serialize_model_instance(self, instance):
+        """Helper function to serialize a single SQLAlchemy model instance."""
+        if instance is None:
+            return None
+
+        # Use SQLAlchemy's inspection API to get object state
+        # Use the alias 'sqla_inspect' that you defined at the top of the file
+        state = sqla_inspect(instance) # <--- CORRECTED LINE
+        mapper = state.mapper
+        data = {}
+
+        # Get standard column attributes
+        for col_prop in mapper.column_attrs:
+            if isinstance(col_prop, ColumnProperty):
+                 # Check if the attribute is loaded
+                 # A simple getattr should work and trigger a load if necessary
+                 # However, to be safer and avoid unwanted loads for unloaded deferred columns:
+                 # if col_prop.key not in state.unloaded or state.manager.is_modified(state):
+                 try:
+                     value = getattr(instance, col_prop.key)
+                     data[col_prop.key] = value
+                 except Exception as e:
+                     # print(f"Debug: Error getting attr {col_prop.key} for {instance}: {e}")
+                     data[col_prop.key] = None # Or some placeholder
+            # else:
+                # print(f"Debug: Skipping non-ColumnProperty: {col_prop.key} of type {type(col_prop)}")
+
+
+        # Get primary keys of related objects
+        for rel_prop in mapper.relationships:
+            rel_key = rel_prop.key
+            # Check if the relationship is loaded to avoid triggering deferred loads
+            # if rel_key in state.unloaded and not state.manager.is_modified(state):
+            #     data[rel_key] = f"[Deferred Relationship: {rel_key}]"
+            #     continue
+
+            related_value = getattr(instance, rel_key)
+
+            if related_value is None:
+                data[rel_key] = None
+            elif rel_prop.uselist: # OneToMany or ManyToMany
+                related_pks = []
+                for item in related_value:
+                    if item is not None:
+                        try:
+                            item_mapper = object_mapper(item)
+                            # Get primary key tuple, handle single vs composite
+                            pk_tuple = item_mapper.primary_key_from_instance(item)
+                            related_pks.append(pk_tuple[0] if len(pk_tuple) == 1 else list(pk_tuple)) # Ensure list for consistency if composite
+                        except Exception:
+                            related_pks.append("[Error getting PK for item]")
+                data[rel_key] = related_pks
+            else: # ManyToOne
+                 try:
+                    related_mapper = object_mapper(related_value)
+                    pk_tuple = related_mapper.primary_key_from_instance(related_value)
+                    data[rel_key] = pk_tuple[0] if len(pk_tuple) == 1 else list(pk_tuple)
+                 except Exception:
+                      data[rel_key] = "[Error getting PK for related object]"
+        return data
+
+
+    def to_json(self, path: str = None, tables: list = None, indent: int = 2):
+        """
+        Dumps database content to a JSON structure.
+
+        Args:
+            path (str, optional): File path to write the JSON data to.
+                                   If None, returns the JSON string. Defaults to None.
+            tables (list, optional): A list of table names (strings) or model classes
+                                     to include. If None, dumps all tables defined in
+                                     MODELS_FOR_SCHEMA. Defaults to None.
+            indent (int, optional): Indentation level for the JSON output. Defaults to 2.
+                                    Use None for compact output.
+
+        Returns:
+            str | None: The JSON data as a string if path is None, otherwise None.
+        """
+        print("Starting JSON data dump...")
+        data_dump = {}
+        models_to_dump = []
+
+        # Determine which models/tables to process
+        if tables:
+            all_models_map = {model.__tablename__: model for model in self.MODELS_FOR_SCHEMA}
+            all_models_map.update({model.__name__: model for model in self.MODELS_FOR_SCHEMA})
+            for table_ref in tables:
+                if isinstance(table_ref, str):
+                    model_cls = all_models_map.get(table_ref)
+                    if model_cls:
+                        models_to_dump.append(model_cls)
+                    else:
+                        print(f"Warning: Table/Model name '{table_ref}' not found in defined models. Skipping.")
+                elif table_ref in self.MODELS_FOR_SCHEMA: # Check if it's a direct class reference
+                    models_to_dump.append(table_ref)
+                else:
+                     print(f"Warning: Invalid item in tables list: {table_ref}. Skipping.")
+        else:
+            models_to_dump = self.MODELS_FOR_SCHEMA # Default to all defined models
+
+        print(f"Will dump data for models: {[m.__name__ for m in models_to_dump]}")
+
+        with self.SessionLocal() as db:
+            try:
+                for model_cls in tqdm(models_to_dump, desc="Dumping tables"):
+                    table_name = model_cls.__tablename__
+                    print(f"  Querying table: {table_name}")
+                    try:
+                        # Query all instances - CAUTION: This loads ALL data for the table into memory!
+                        # For very large tables, consider batching or alternative strategies.
+                        instances = db.query(model_cls).all()
+                        print(f"  Found {len(instances)} instances. Serializing...")
+                        data_dump[table_name] = [self._serialize_model_instance(inst) for inst in instances]
+                        print(f"  Finished serializing {table_name}")
+                    except Exception as query_err:
+                         print(f"  ERROR querying or serializing table {table_name}: {query_err}")
+                         data_dump[table_name] = {"error": f"Failed to dump table: {query_err}"}
+
+            except Exception as e:
+                print(f"An error occurred during database query for JSON dump: {e}")
+                traceback.print_exc()
+                return None # Indicate failure
+
+        # Convert final dictionary to JSON string
+        print("Converting dump to JSON string...")
+        try:
+            # Use default=str as a fallback for types json doesn't know (like Decimal, Date)
+            json_string = json.dumps(data_dump, indent=indent, default=str)
+        except TypeError as e:
+             print(f"Error serializing data dump to JSON: {e}")
+             return None
+
+        # Write to file or return string
+        if path:
+            try:
+                with open(path, 'w') as f: f.write(json_string)
+                print(f"Data dump successfully written to: {path}")
+                return None
+            except IOError as e: print(f"Error writing data dump to file '{path}': {e}"); raise
+        else:
+            return json_string
